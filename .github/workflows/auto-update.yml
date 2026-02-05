@@ -40,21 +40,9 @@ jobs:
           echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
           ls -la
 
-          if [[ -d .git ]]; then
-            echo ".git exists, OK"
-            git rev-parse --show-toplevel
-            exit 0
-          fi
+          # Fix: Git "dubious ownership" for mounted workspace in containers
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-          echo "No .git found; recreating repository metadata..."
-
-          # init an empty repo on top of the checked-out files
-          git init
-
-          # set origin using GITHUB_TOKEN so push works
-          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-
-          # fetch the branch that triggered the workflow (fallback to default)
           ref="${GITHUB_REF_NAME:-}"
           if [[ -z "$ref" ]]; then
             ref="$(echo "${GITHUB_REF}" | sed 's#refs/heads/##')"
@@ -64,13 +52,19 @@ jobs:
           fi
           echo "Using ref=$ref"
 
-          git fetch --no-tags --prune origin "+refs/heads/${ref}:refs/remotes/origin/${ref}"
+          if [[ -d .git ]]; then
+            echo ".git exists, OK"
+            git rev-parse --show-toplevel
+            exit 0
+          fi
 
-          # create local branch tracking origin
+          echo "No .git found; recreating repository metadata..."
+          git init -b "$ref"
+
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags --prune origin "+refs/heads/${ref}:refs/remotes/origin/${ref}"
           git checkout -B "${ref}" "origin/${ref}"
 
-          # now the working tree should match remote, but our current files are already present.
-          # stage refresh to reconcile index
           git status --porcelain
 
       - name: Update PKGBUILD
@@ -97,6 +91,7 @@ jobs:
             exit 1
           fi
 
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
