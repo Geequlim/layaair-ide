@@ -48,6 +48,9 @@ jobs:
           mkdir -p /repo
           chown -R builder:builder /repo
 
+          # ensure cache dir exists and is writable
+          install -d -m 700 -o builder -g builder /home/builder/.cache/layaair-ide
+
       - name: Clone repo (clean, real .git)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -57,7 +60,6 @@ jobs:
           set -euo pipefail
           ref="${REF_NAME:-main}"
 
-          # 用 builder clone，避免后续所有权/安全目录问题
           runuser -u builder -- bash -lc "
             set -euo pipefail
             cd /
@@ -67,6 +69,7 @@ jobs:
             test -d .git
             git rev-parse --show-toplevel
           "
+
       - name: Cache AppImage
         uses: actions/cache@v4
         with:
@@ -135,6 +138,7 @@ jobs:
             exit 1
           fi
 
+          # Install SSH key for builder
           install -d -m 700 -o builder -g builder /home/builder/.ssh
 
           tmpkey="$(mktemp)"
@@ -143,6 +147,7 @@ jobs:
           install -m 600 -o builder -g builder "$tmpkey" /home/builder/.ssh/id_ed25519
           rm -f "$tmpkey"
 
+          # IMPORTANT: push to AUR from a clean AUR repo clone, not from GitHub repo
           runuser -u builder -- bash -lc "
             set -euo pipefail
 
@@ -158,11 +163,37 @@ jobs:
               > ~/.ssh/config
             chmod 600 ~/.ssh/config
 
+            # sanity: packaging files must exist in /repo
             cd /repo
-            git remote remove aur 2>/dev/null || true
-            git remote add aur \"ssh://aur@aur.archlinux.org/${AUR_PKGNAME}.git\"
-            git push aur HEAD:master
+            test -f PKGBUILD
+            test -f .SRCINFO
+
+            # clone aur repo into a separate dir
+            rm -rf /home/builder/aur-repo
+            git clone \"ssh://aur@aur.archlinux.org/${AUR_PKGNAME}.git\" /home/builder/aur-repo
+            cd /home/builder/aur-repo
+
+            # replace contents with packaging files only (AUR hook expects PKGBUILD at root)
+            find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+
+            cp -f /repo/PKGBUILD .
+            cp -f /repo/.SRCINFO .
+            if [[ -f /repo/${AUR_PKGNAME}.install ]]; then
+              cp -f /repo/${AUR_PKGNAME}.install .
+            fi
+
+            # verify PKGBUILD is really present before commit
+            test -f PKGBUILD
+
+            git add -A
+            if git diff --cached --quiet; then
+              echo 'AUR repo already up to date; nothing to push.'
+              exit 0
+            fi
+
+            ver=\$(sed -n 's/^_upstream_ver=//p' PKGBUILD | head -n1 | tr -d '\r\n')
+            git config user.name 'github-actions[bot]'
+            git config user.email 'github-actions[bot]@users.noreply.github.com'
+            git commit -m \"chore: update to \${ver}\"
+            git push origin master
           "
-
-
-
