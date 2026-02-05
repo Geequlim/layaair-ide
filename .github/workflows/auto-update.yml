@@ -127,35 +127,34 @@ jobs:
             exit 1
           fi
 
-          # Write key as root (no echo), then move into builder's ~/.ssh
           install -d -m 700 -o builder -g builder /home/builder/.ssh
 
           tmpkey="$(mktemp)"
           chmod 600 "$tmpkey"
           printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > "$tmpkey"
-
           install -m 600 -o builder -g builder "$tmpkey" /home/builder/.ssh/id_ed25519
           rm -f "$tmpkey"
 
-          # Known hosts and ssh config (as builder)
-          runuser -u builder -- bash -lc '
+          runuser -u builder -- bash -lc "
             set -euo pipefail
+
             ssh-keyscan -H aur.archlinux.org >> ~/.ssh/known_hosts
             chmod 600 ~/.ssh/known_hosts
 
-            cat > ~/.ssh/config <<EOF
-            Host aur.archlinux.org
-              User aur
-              IdentityFile ~/.ssh/id_ed25519
-              IdentitiesOnly yes
-              StrictHostKeyChecking yes
-            EOF
+            printf '%s\n' \
+              'Host aur.archlinux.org' \
+              '  User aur' \
+              '  IdentityFile ~/.ssh/id_ed25519' \
+              '  IdentitiesOnly yes' \
+              '  StrictHostKeyChecking yes' \
+              > ~/.ssh/config
             chmod 600 ~/.ssh/config
 
             cd /repo
             git remote remove aur 2>/dev/null || true
-            git remote add aur "ssh://aur@aur.archlinux.org/'"${AUR_PKGNAME}"'.git"
+            git remote add aur \"ssh://aur@aur.archlinux.org/${AUR_PKGNAME}.git\"
             git push aur HEAD:master
-          '
+          "
+
 
 
