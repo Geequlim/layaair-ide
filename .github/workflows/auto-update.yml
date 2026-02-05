@@ -118,31 +118,44 @@ jobs:
         if: steps.diff.outputs.changed == 'true'
         env:
           AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
-          AUR_USERNAME: ${{ secrets.AUR_USERNAME }}
           AUR_PKGNAME: layaair-ide
         run: |
           set -euo pipefail
 
-          if [[ -z "${AUR_SSH_PRIVATE_KEY:-}" || -z "${AUR_USERNAME:-}" ]]; then
-            echo "Missing AUR secrets" >&2
+          if [[ -z "${AUR_SSH_PRIVATE_KEY:-}" ]]; then
+            echo "Missing AUR_SSH_PRIVATE_KEY secret" >&2
             exit 1
           fi
 
-          # 在 builder 的 HOME 下写 ssh 配置，保证 ssh 也用 builder 的环境
-          runuser -u builder -- bash -lc "
+          # Write key as root (no echo), then move into builder's ~/.ssh
+          install -d -m 700 -o builder -g builder /home/builder/.ssh
+
+          tmpkey="$(mktemp)"
+          chmod 600 "$tmpkey"
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > "$tmpkey"
+
+          install -m 600 -o builder -g builder "$tmpkey" /home/builder/.ssh/id_ed25519
+          rm -f "$tmpkey"
+
+          # Known hosts and ssh config (as builder)
+          runuser -u builder -- bash -lc '
             set -euo pipefail
-            cd /repo
-
-            mkdir -p ~/.ssh
-            chmod 700 ~/.ssh
-
-            echo '${AUR_SSH_PRIVATE_KEY}' > ~/.ssh/id_ed25519
-            chmod 600 ~/.ssh/id_ed25519
-
             ssh-keyscan -H aur.archlinux.org >> ~/.ssh/known_hosts
             chmod 600 ~/.ssh/known_hosts
 
+            cat > ~/.ssh/config <<EOF
+            Host aur.archlinux.org
+              User aur
+              IdentityFile ~/.ssh/id_ed25519
+              IdentitiesOnly yes
+              StrictHostKeyChecking yes
+            EOF
+            chmod 600 ~/.ssh/config
+
+            cd /repo
             git remote remove aur 2>/dev/null || true
-            git remote add aur 'ssh://${AUR_USERNAME}@aur.archlinux.org/${AUR_PKGNAME}.git'
+            git remote add aur "ssh://aur@aur.archlinux.org/'"${AUR_PKGNAME}"'.git"
             git push aur HEAD:master
-          "
+          '
+
+
