@@ -4,6 +4,14 @@ on:
   schedule:
     - cron: '0 2 * * *'
   workflow_dispatch:
+    inputs:
+      force_test:
+        description: 'Force update even if upstream unchanged'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
+
 
 permissions:
   contents: write
@@ -51,9 +59,10 @@ jobs:
 
       - name: Update PKGBUILD
         working-directory: repo
-        run: |
-          set -euo pipefail
-          ./scripts/update.sh
+        env:
+          FORCE_TEST: ${{ inputs.force_test || 'false' }}
+        run: ./scripts/update.sh
+
 
       - name: Detect Changes
         id: diff
