@@ -20,61 +20,46 @@ jobs:
         shell: bash
 
     steps:
-      - name: Checkout (best effort)
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
       - name: Install Dependencies
         run: |
+          set -euo pipefail
           pacman -Syu --noconfirm --needed \
             ca-certificates git base-devel jq curl openssh
           update-ca-trust || true
           git --version
+          ssh -V || true
 
-      - name: Ensure git repository (recreate .git if missing)
-        working-directory: ${{ github.workspace }}
+      - name: Clone repo (clean)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REF_NAME: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
         run: |
-          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
-          ls -la
+          set -euo pipefail
 
-          # Fix: Git "dubious ownership" for mounted workspace in containers
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          # schedule 触发时 github.ref_name 通常是默认分支；手动触发则是你点 Run 时选的分支
+          ref="${REF_NAME:-main}"
+          echo "Cloning repo=${REPO} ref=${ref}"
 
-          ref="${GITHUB_REF_NAME:-}"
-          if [[ -z "$ref" ]]; then
-            ref="$(echo "${GITHUB_REF}" | sed 's#refs/heads/##')"
-          fi
-          if [[ -z "$ref" || "$ref" == "$GITHUB_REF" ]]; then
-            ref="main"
-          fi
-          echo "Using ref=$ref"
+          rm -rf repo
+          git clone --branch "$ref" \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${REPO}.git" repo
 
-          if [[ -d .git ]]; then
-            echo ".git exists, OK"
-            git rev-parse --show-toplevel
-            exit 0
-          fi
-
-          echo "No .git found; recreating repository metadata..."
-          git init -b "$ref"
-
-          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git fetch --no-tags --prune origin "+refs/heads/${ref}:refs/remotes/origin/${ref}"
-          git checkout -B "${ref}" "origin/${ref}"
-
-          git status --porcelain
+          cd repo
+          git status --porcelain || true
+          git rev-parse --show-toplevel
 
       - name: Update PKGBUILD
-        working-directory: ${{ github.workspace }}
-        run: ./scripts/update.sh
+        working-directory: repo
+        run: |
+          set -euo pipefail
+          ./scripts/update.sh
 
       - name: Detect Changes
         id: diff
-        working-directory: ${{ github.workspace }}
+        working-directory: repo
         run: |
+          set -euo pipefail
           if git diff --quiet; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
@@ -83,15 +68,16 @@ jobs:
 
       - name: Commit And Push
         if: steps.diff.outputs.changed == 'true'
-        working-directory: ${{ github.workspace }}
+        working-directory: repo
         run: |
+          set -euo pipefail
+
           ver="$(sed -n 's/^_upstream_ver=//p' PKGBUILD | head -n1 | tr -d '\r\n')"
           if [[ -z "$ver" ]]; then
             echo "Cannot read _upstream_ver from PKGBUILD" >&2
             exit 1
           fi
 
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
@@ -101,21 +87,38 @@ jobs:
 
       - name: Push To AUR
         if: steps.diff.outputs.changed == 'true'
-        working-directory: ${{ github.workspace }}
+        working-directory: repo
         env:
           AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
           AUR_USERNAME: ${{ secrets.AUR_USERNAME }}
           AUR_PKGNAME: layaair-ide
         run: |
-          if [[ -z "${AUR_SSH_PRIVATE_KEY}" || -z "${AUR_USERNAME}" ]]; then
+          set -euo pipefail
+
+          if [[ -z "${AUR_SSH_PRIVATE_KEY:-}" || -z "${AUR_USERNAME:-}" ]]; then
             echo "Missing AUR secrets" >&2
             exit 1
           fi
 
           mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
           echo "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
+
+          # 固定使用这把 key，避免 ssh 在容器里瞎找
+          cat > ~/.ssh/config <<'EOF'
+          Host aur.archlinux.org
+            HostName aur.archlinux.org
+            User git
+            IdentityFile ~/.ssh/id_ed25519
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+          EOF
+          chmod 600 ~/.ssh/config
+
           ssh-keyscan -H aur.archlinux.org >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
 
           git remote remove aur 2>/dev/null || true
           git remote add aur "ssh://${AUR_USERNAME}@aur.archlinux.org/${AUR_PKGNAME}.git"
