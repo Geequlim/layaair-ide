@@ -70,7 +70,7 @@ jobs:
       - name: Cache AppImage
         uses: actions/cache@v4
         with:
-          path: ${{ github.workspace }}/.cache/layaair-ide
+          path: /home/builder/.cache/layaair-ide
           key: layaair-ide-appimage-${{ runner.os }}-${{ github.ref_name }}
           restore-keys: |
             layaair-ide-appimage-${{ runner.os }}-
@@ -78,7 +78,7 @@ jobs:
       - name: Update PKGBUILD
         env:
           FORCE_TEST: ${{ inputs.force_test || 'false' }}
-          CACHE_DIR: ${{ github.workspace }}/.cache/layaair-ide
+          CACHE_DIR: /home/builder/.cache/layaair-ide
         run: |
           set -euo pipefail
           runuser -u builder -- bash -lc "
@@ -86,7 +86,6 @@ jobs:
             cd /repo
             FORCE_TEST='${FORCE_TEST}' CACHE_DIR='${CACHE_DIR}' ./scripts/update.sh
           "
-
 
       - name: Detect Changes
         id: diff
