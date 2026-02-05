@@ -6,11 +6,16 @@ cd "$ROOT_DIR"
 
 JSON_URL="https://ldc-1251285021.file.myqcloud.com/layaair/log/3.0/navConfig.json"
 
-# Set FORCE_TEST=true (e.g. from workflow_dispatch) to force refresh even if version/url unchanged.
 FORCE_TEST="${FORCE_TEST:-false}"
+CACHE_DIR="${CACHE_DIR:-}"
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "jq is required" >&2
+  exit 1
+fi
+
+if ! command -v curl >/dev/null 2>&1; then
+  echo "curl is required" >&2
   exit 1
 fi
 
@@ -48,8 +53,30 @@ if [[ "$current_ver" == "$ver" && "$current_url" == "$url" ]]; then
   echo "[FORCE_TEST] Upstream unchanged, but forcing refresh for CI test."
 fi
 
+# ---------- AppImage cache ----------
+cached_appimage=""
+if [[ -n "$CACHE_DIR" ]]; then
+  mkdir -p "$CACHE_DIR"
+  # Use url hash as stable cache key
+  url_hash="$(printf '%s' "$url" | sha256sum | awk '{print $1}')"
+  cached_appimage="${CACHE_DIR}/${url_hash}.AppImage"
+fi
+
 appimage="$workdir/LayaAirIDE.AppImage"
-curl -fL "$url" -o "$appimage"
+
+if [[ -n "$cached_appimage" && -s "$cached_appimage" ]]; then
+  echo "Using cached AppImage: $cached_appimage"
+  cp -f "$cached_appimage" "$appimage"
+else
+  echo "Downloading AppImage: $url"
+  curl -fL "$url" -o "$appimage"
+  if [[ -n "$cached_appimage" ]]; then
+    cp -f "$appimage" "$cached_appimage"
+    echo "Saved AppImage to cache: $cached_appimage"
+  fi
+fi
+# -----------------------------------
+
 sha256=$(sha256sum "$appimage" | awk '{print $1}')
 
 sed -i "s/^_upstream_ver=.*/_upstream_ver=${ver}/" PKGBUILD
@@ -64,12 +91,10 @@ if [[ "$FORCE_TEST" == "true" ]]; then
   if grep -q '^_force_test_ts=' PKGBUILD; then
     sed -i "s/^_force_test_ts=.*/_force_test_ts=${ts}/" PKGBUILD
   else
-    # Insert at top so it’s obvious and harmless.
     sed -i "1i_force_test_ts=${ts}" PKGBUILD
   fi
 fi
 
-# Generate .SRCINFO (run as non-root; workflow should execute this script as an unprivileged user)
 makepkg --printsrcinfo > .SRCINFO
 
 echo "Updated to ${ver}"
