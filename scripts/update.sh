@@ -70,10 +70,17 @@ if [[ "$FORCE_TEST" == "true" ]]; then
   fi
 fi
 
+# Generate .SRCINFO (root-safe)
 if [[ "$(id -u)" -eq 0 ]]; then
-  makepkg --printsrcinfo --asroot > .SRCINFO
+  # makepkg may refuse root or not support --asroot; run as an unprivileged user
+  if ! id -u builder >/dev/null 2>&1; then
+    useradd -m builder >/dev/null 2>&1 || true
+  fi
+  chown -R builder:builder "$ROOT_DIR"
+  runuser -u builder -- bash -lc 'cd "'"$ROOT_DIR"'" && makepkg --printsrcinfo' > .SRCINFO
 else
   makepkg --printsrcinfo > .SRCINFO
 fi
+
 
 echo "Updated to ${ver}"
