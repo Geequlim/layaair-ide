@@ -12,21 +12,36 @@ jobs:
     env:
       LANG: C.UTF-8
       LC_ALL: C.UTF-8
+    defaults:
+      run:
+        shell: bash
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      - name: Debug workspace
+        working-directory: ${{ github.workspace }}
+        run: |
+          echo "pwd=$(pwd)"
+          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
+          ls -la
+          git rev-parse --show-toplevel
+          git status --porcelain || true
+
       - name: Install Dependencies
         run: |
           pacman -Sy --noconfirm --needed base-devel git jq curl openssh
 
       - name: Update PKGBUILD
+        working-directory: ${{ github.workspace }}
         run: ./scripts/update.sh
 
       - name: Detect Changes
         id: diff
+        working-directory: ${{ github.workspace }}
         run: |
           if git diff --quiet; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -36,16 +51,24 @@ jobs:
 
       - name: Commit And Push
         if: steps.diff.outputs.changed == 'true'
+        working-directory: ${{ github.workspace }}
         run: |
-          ver=$(sed -n 's/^_upstream_ver=//p' PKGBUILD)
+          ver="$(sed -n 's/^_upstream_ver=//p' PKGBUILD | head -n1 | tr -d '\r\n')"
+          if [[ -z "$ver" ]]; then
+            echo "Cannot read _upstream_ver from PKGBUILD" >&2
+            exit 1
+          fi
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
           git add PKGBUILD .SRCINFO
           git commit -m "chore: update to ${ver}"
           git push
 
       - name: Push To AUR
         if: steps.diff.outputs.changed == 'true'
+        working-directory: ${{ github.workspace }}
         env:
           AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
           AUR_USERNAME: ${{ secrets.AUR_USERNAME }}
@@ -59,8 +82,4 @@ jobs:
           mkdir -p ~/.ssh
           echo "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H aur.archlinux.org >> ~/.ssh/known_hosts
-
-          git remote remove aur 2>/dev/null || true
-          git remote add aur "ssh://${AUR_USERNAME}@aur.archlinux.org/${AUR_PKGNAME}.git"
-          git push aur HEAD:master
+          ssh-keysca
