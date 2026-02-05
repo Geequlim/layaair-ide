@@ -5,6 +5,9 @@ on:
     - cron: '0 2 * * *'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   update:
     runs-on: ubuntu-latest
@@ -17,33 +20,58 @@ jobs:
         shell: bash
 
     steps:
-      # 1) 先 checkout（不依赖容器内 git）
-      - name: Checkout
+      - name: Checkout (best effort)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # 2) 先把 git 装上：后面任何 git 命令都不会炸
-      - name: Bootstrap (install git)
+      - name: Install Dependencies
         run: |
-          pacman -Sy --noconfirm --needed ca-certificates git
+          pacman -Syu --noconfirm --needed \
+            ca-certificates git base-devel jq curl openssh
           update-ca-trust || true
           git --version
 
-      # 3) 再做 workspace debug（此时 git 已经存在）
-      - name: Debug workspace
+      - name: Ensure git repository (recreate .git if missing)
         working-directory: ${{ github.workspace }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
-          echo "pwd=$(pwd)"
           ls -la
-          git rev-parse --show-toplevel
-          git status --porcelain || true
 
-      # 4) 其余依赖（你脚本需要啥就装啥）
-      - name: Install Dependencies
-        run: |
-          pacman -Sy --noconfirm --needed base-devel jq curl openssh
+          if [[ -d .git ]]; then
+            echo ".git exists, OK"
+            git rev-parse --show-toplevel
+            exit 0
+          fi
+
+          echo "No .git found; recreating repository metadata..."
+
+          # init an empty repo on top of the checked-out files
+          git init
+
+          # set origin using GITHUB_TOKEN so push works
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          # fetch the branch that triggered the workflow (fallback to default)
+          ref="${GITHUB_REF_NAME:-}"
+          if [[ -z "$ref" ]]; then
+            ref="$(echo "${GITHUB_REF}" | sed 's#refs/heads/##')"
+          fi
+          if [[ -z "$ref" || "$ref" == "$GITHUB_REF" ]]; then
+            ref="main"
+          fi
+          echo "Using ref=$ref"
+
+          git fetch --no-tags --prune origin "+refs/heads/${ref}:refs/remotes/origin/${ref}"
+
+          # create local branch tracking origin
+          git checkout -B "${ref}" "origin/${ref}"
+
+          # now the working tree should match remote, but our current files are already present.
+          # stage refresh to reconcile index
+          git status --porcelain
 
       - name: Update PKGBUILD
         working-directory: ${{ github.workspace }}
@@ -74,7 +102,7 @@ jobs:
 
           git add PKGBUILD .SRCINFO
           git commit -m "chore: update to ${ver}"
-          git push
+          git push origin HEAD
 
       - name: Push To AUR
         if: steps.diff.outputs.changed == 'true'
