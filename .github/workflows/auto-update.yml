@@ -1,0 +1,66 @@
+name: Auto Update
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    env:
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Dependencies
+        run: |
+          pacman -Sy --noconfirm --needed base-devel git jq curl openssh
+
+      - name: Update PKGBUILD
+        run: ./scripts/update.sh
+
+      - name: Detect Changes
+        id: diff
+        run: |
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit And Push
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          ver=$(sed -n 's/^_upstream_ver=//p' PKGBUILD)
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add PKGBUILD .SRCINFO
+          git commit -m "chore: update to ${ver}"
+          git push
+
+      - name: Push To AUR
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          AUR_USERNAME: ${{ secrets.AUR_USERNAME }}
+          AUR_PKGNAME: layaair-ide
+        run: |
+          if [[ -z "${AUR_SSH_PRIVATE_KEY}" || -z "${AUR_USERNAME}" ]]; then
+            echo "Missing AUR secrets" >&2
+            exit 1
+          fi
+
+          mkdir -p ~/.ssh
+          echo "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H aur.archlinux.org >> ~/.ssh/known_hosts
+
+          git remote remove aur 2>/dev/null || true
+          git remote add aur "ssh://${AUR_USERNAME}@aur.archlinux.org/${AUR_PKGNAME}.git"
+          git push aur HEAD:master
