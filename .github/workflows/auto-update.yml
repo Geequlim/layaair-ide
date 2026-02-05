@@ -17,23 +17,33 @@ jobs:
         shell: bash
 
     steps:
+      # 1) 先 checkout（不依赖容器内 git）
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      # 2) 先把 git 装上：后面任何 git 命令都不会炸
+      - name: Bootstrap (install git)
+        run: |
+          pacman -Sy --noconfirm --needed ca-certificates git
+          update-ca-trust || true
+          git --version
+
+      # 3) 再做 workspace debug（此时 git 已经存在）
       - name: Debug workspace
         working-directory: ${{ github.workspace }}
         run: |
-          echo "pwd=$(pwd)"
           echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
+          echo "pwd=$(pwd)"
           ls -la
           git rev-parse --show-toplevel
           git status --porcelain || true
 
+      # 4) 其余依赖（你脚本需要啥就装啥）
       - name: Install Dependencies
         run: |
-          pacman -Sy --noconfirm --needed base-devel git jq curl openssh
+          pacman -Sy --noconfirm --needed base-devel jq curl openssh
 
       - name: Update PKGBUILD
         working-directory: ${{ github.workspace }}
@@ -82,4 +92,8 @@ jobs:
           mkdir -p ~/.ssh
           echo "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keysca
+          ssh-keyscan -H aur.archlinux.org >> ~/.ssh/known_hosts
+
+          git remote remove aur 2>/dev/null || true
+          git remote add aur "ssh://${AUR_USERNAME}@aur.archlinux.org/${AUR_PKGNAME}.git"
+          git push aur HEAD:master
