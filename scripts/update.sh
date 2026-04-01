@@ -16,6 +16,7 @@ ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT_DIR"
 
 JSON_URL="https://ldc-1251285021.file.myqcloud.com/layaair/log/3.0/navConfig.json"
+CURL_RETRY_ARGS=(--http1.1 --retry 5 --retry-delay 2 --retry-all-errors --connect-timeout 30)
 
 FORCE_TEST="${FORCE_TEST:-false}"
 CACHE_DIR="${CACHE_DIR:-}"
@@ -133,7 +134,7 @@ if [[ "$JSON_URL" == *\?* ]]; then
 fi
 source_url="${JSON_URL}${separator}_=${cache_buster}"
 
-json=$(curl -fsSL \
+json=$(curl "${CURL_RETRY_ARGS[@]}" -fsSL \
   -H 'Cache-Control: no-cache, no-store, max-age=0' \
   -H 'Pragma: no-cache' \
   -H 'Expires: 0' \
@@ -207,7 +208,7 @@ if [[ -n "$cached_appimage" && -s "$cached_appimage" ]]; then
   cp -f "$cached_appimage" "$appimage"
 else
   echo "Downloading AppImage: $url"
-  if ! curl --retry 3 --retry-all-errors --connect-timeout 30 -fL "$url" -o "$appimage"; then
+  if ! curl "${CURL_RETRY_ARGS[@]}" -fL "$url" -o "$appimage"; then
     echo "Failed to download AppImage: $url" >&2
     exit 1
   fi
