@@ -16,6 +16,12 @@ The package extracts the AppImage and installs the unpacked app into `/opt/layaa
 ./scripts/update.sh
 ```
 
+Check only, without downloading:
+```bash
+./scripts/update.sh --check-only
+./scripts/update.sh --check-only --format json
+```
+
 ## GitHub Actions (nightly)
 The workflow runs every night and pushes updates to GitHub and AUR.
 
