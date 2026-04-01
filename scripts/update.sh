@@ -63,6 +63,8 @@ print_detection_result() {
   local latest_url="$7"
   local latest_date="$8"
   local needs_update="$9"
+  local source_url="${10}"
+  local source_hash="${11}"
 
   if [[ "$OUTPUT_FORMAT" == "json" ]]; then
     jq -nc \
@@ -74,6 +76,8 @@ print_detection_result() {
       --arg latest_ver "$latest_ver" \
       --arg latest_url "$latest_url" \
       --arg latest_date "$latest_date" \
+      --arg source_url "$source_url" \
+      --arg source_hash "$source_hash" \
       --arg force_test "$FORCE_TEST" \
       --argjson needs_update "$needs_update" \
       '{
@@ -85,6 +89,8 @@ print_detection_result() {
         latest_ver: $latest_ver,
         latest_url: $latest_url,
         latest_date: $latest_date,
+        source_url: $source_url,
+        source_hash: $source_hash,
         force_test: ($force_test == "true"),
         needs_update: $needs_update
       }'
@@ -101,6 +107,8 @@ latest_name=${latest_name}
 latest_ver=${latest_ver}
 latest_url=${latest_url}
 latest_date=${latest_date}
+source_url=${source_url}
+source_hash=${source_hash}
 force_test=${FORCE_TEST}
 EOF
 }
@@ -118,7 +126,19 @@ fi
 workdir=$(mktemp -d)
 trap 'rm -rf "$workdir"' EXIT
 
-json=$(curl -fsSL "$JSON_URL")
+cache_buster="$(date -u +%s)-$$"
+separator='?'
+if [[ "$JSON_URL" == *\?* ]]; then
+  separator='&'
+fi
+source_url="${JSON_URL}${separator}_=${cache_buster}"
+
+json=$(curl -fsSL \
+  -H 'Cache-Control: no-cache, no-store, max-age=0' \
+  -H 'Pragma: no-cache' \
+  -H 'Expires: 0' \
+  "$source_url")
+source_hash="$(printf '%s' "$json" | sha256sum | awk '{print $1}')"
 latest=$(printf '%s' "$json" | jq -cr 'map(select(.download["IDE for Linux(x64)"]? != null and .download["IDE for Linux(x64)"] != "")) | sort_by(.date) | last')
 
 name=$(printf '%s' "$latest" | jq -r '.name')
@@ -156,11 +176,11 @@ elif [[ "$FORCE_TEST" == "true" ]]; then
 fi
 
 if [[ "$CHECK_ONLY" == "true" ]]; then
-  print_detection_result "$status" "$reason" "$current_ver" "$current_url" "$name" "$ver" "$url" "$date" "$needs_update"
+  print_detection_result "$status" "$reason" "$current_ver" "$current_url" "$name" "$ver" "$url" "$date" "$needs_update" "$source_url" "$source_hash"
   exit 0
 fi
 
-echo "Detection result: status=${status}, reason=${reason}, current=${current_ver:-unknown}, latest=${ver}"
+echo "Detection result: status=${status}, reason=${reason}, current=${current_ver:-unknown}, latest=${ver}, source_hash=${source_hash}"
 
 if [[ "$needs_update" != "true" ]]; then
   echo "Already up to date: ${ver}"
