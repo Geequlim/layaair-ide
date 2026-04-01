@@ -33,11 +33,12 @@ jobs:
         run: |
           set -euo pipefail
           pacman -Syu --noconfirm --needed \
-            ca-certificates git base-devel jq curl openssh util-linux
+            ca-certificates git base-devel jq curl aria2 openssh util-linux
           update-ca-trust || true
           git --version
           jq --version
           curl --version
+          aria2c --version | head -n1
           ssh -V || true
 
       - name: Prepare builder user and repo dir

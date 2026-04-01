@@ -22,6 +22,8 @@ Check only, without downloading:
 ./scripts/update.sh --check-only --format json
 ```
 
+Large AppImage downloads prefer `aria2c` automatically when available. You can override the auto-detected parallel connections with `ARIA2_CONNECTIONS`, and tune split size with `ARIA2_MIN_SPLIT_SIZE`.
+
 ## GitHub Actions (nightly)
 The workflow runs every night and pushes updates to GitHub and AUR.
 

@@ -17,6 +17,71 @@ cd "$ROOT_DIR"
 
 JSON_URL="https://ldc-1251285021.file.myqcloud.com/layaair/log/3.0/navConfig.json"
 CURL_RETRY_ARGS=(--http1.1 --retry 5 --retry-delay 2 --retry-all-errors --connect-timeout 30)
+ARIA2_MIN_SPLIT_SIZE="${ARIA2_MIN_SPLIT_SIZE:-5M}"
+
+detect_download_connections() {
+  local configured="${ARIA2_CONNECTIONS:-}"
+  local cpu_count
+  local connections
+
+  if [[ -n "$configured" ]]; then
+    printf '%s' "$configured"
+    return
+  fi
+
+  cpu_count="$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)"
+  if ! [[ "$cpu_count" =~ ^[0-9]+$ ]] || [[ "$cpu_count" -lt 1 ]]; then
+    cpu_count=2
+  fi
+
+  connections=$(( cpu_count * 2 ))
+  if [[ "$connections" -lt 4 ]]; then
+    connections=4
+  elif [[ "$connections" -gt 16 ]]; then
+    connections=16
+  fi
+
+  printf '%s' "$connections"
+}
+
+download_file() {
+  local url="$1"
+  local dest="$2"
+  local dir_path
+  local file_name
+  local connections
+  local cpu_count
+
+  dir_path="$(dirname "$dest")"
+  file_name="$(basename "$dest")"
+
+  if command -v aria2c >/dev/null 2>&1; then
+    connections="$(detect_download_connections)"
+    cpu_count="$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo unknown)"
+    echo "Using downloader: aria2c (cpu_count=${cpu_count}, connections=${connections}, min_split_size=${ARIA2_MIN_SPLIT_SIZE})"
+    aria2c \
+      --allow-overwrite=true \
+      --auto-file-renaming=false \
+      --continue=true \
+      --max-tries=5 \
+      --retry-wait=2 \
+      --connect-timeout=30 \
+      --timeout=30 \
+      --summary-interval=0 \
+      --console-log-level=warn \
+      --file-allocation=none \
+      --split="${connections}" \
+      --max-connection-per-server="${connections}" \
+      --min-split-size="${ARIA2_MIN_SPLIT_SIZE}" \
+      --dir="$dir_path" \
+      --out="$file_name" \
+      "$url"
+    return
+  fi
+
+  echo "Using downloader: curl"
+  curl "${CURL_RETRY_ARGS[@]}" -fL "$url" -o "$dest"
+}
 
 FORCE_TEST="${FORCE_TEST:-false}"
 CACHE_DIR="${CACHE_DIR:-}"
@@ -208,7 +273,7 @@ if [[ -n "$cached_appimage" && -s "$cached_appimage" ]]; then
   cp -f "$cached_appimage" "$appimage"
 else
   echo "Downloading AppImage: $url"
-  if ! curl "${CURL_RETRY_ARGS[@]}" -fL "$url" -o "$appimage"; then
+  if ! download_file "$url" "$appimage"; then
     echo "Failed to download AppImage: $url" >&2
     exit 1
   fi
