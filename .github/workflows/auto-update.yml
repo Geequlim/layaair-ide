@@ -74,14 +74,14 @@ jobs:
       - name: Detect upstream update
         id: detect
         env:
-          FORCE_TEST: ${{ inputs.force || 'false' }}
+          FORCE: ${{ inputs.force || 'false' }}
         run: |
           set -euo pipefail
 
           detection_json="$(runuser -u builder -- bash -lc "
             set -euo pipefail
             cd /repo
-            FORCE_TEST='${FORCE_TEST}' ./scripts/update.sh --check-only --format json
+            FORCE='${FORCE}' ./scripts/update.sh --check-only --format json
           ")"
 
           echo "Detection result:"
@@ -105,7 +105,7 @@ jobs:
       - name: Download AppImage and update PKGBUILD
         if: steps.detect.outputs.needs_update == 'true'
         env:
-          FORCE_TEST: ${{ inputs.force || 'false' }}
+          FORCE: ${{ inputs.force || 'false' }}
           CACHE_DIR: /home/builder/.cache/layaair-ide
           CURRENT_VER: ${{ steps.detect.outputs.current_ver }}
           LATEST_VER: ${{ steps.detect.outputs.latest_ver }}
@@ -115,7 +115,7 @@ jobs:
           runuser -u builder -- bash -lc "
             set -euo pipefail
             cd /repo
-            FORCE_TEST='${FORCE_TEST}' CACHE_DIR='${CACHE_DIR}' ./scripts/update.sh
+            FORCE='${FORCE}' CACHE_DIR='${CACHE_DIR}' ./scripts/update.sh
           "
 
       - name: Detect Changes

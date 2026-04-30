@@ -83,7 +83,7 @@ download_file() {
   curl "${CURL_RETRY_ARGS[@]}" -fL "$url" -o "$dest"
 }
 
-FORCE_TEST="${FORCE_TEST:-false}"
+FORCE="${FORCE:-false}"
 CACHE_DIR="${CACHE_DIR:-}"
 CHECK_ONLY=false
 OUTPUT_FORMAT="plain"
@@ -144,7 +144,7 @@ print_detection_result() {
       --arg latest_date "$latest_date" \
       --arg source_url "$source_url" \
       --arg source_hash "$source_hash" \
-      --arg force_test "$FORCE_TEST" \
+      --arg FORCE "$FORCE" \
       --argjson needs_update "$needs_update" \
       '{
         status: $status,
@@ -157,7 +157,7 @@ print_detection_result() {
         latest_date: $latest_date,
         source_url: $source_url,
         source_hash: $source_hash,
-        force_test: ($force_test == "true"),
+        FORCE: ($FORCE == "true"),
         needs_update: $needs_update
       }'
     return
@@ -175,7 +175,7 @@ latest_url=${latest_url}
 latest_date=${latest_date}
 source_url=${source_url}
 source_hash=${source_hash}
-force_test=${FORCE_TEST}
+FORCE=${FORCE}
 EOF
 }
 
@@ -236,9 +236,9 @@ if [[ "$current_ver" != "$ver" || "$current_url" != "$url" ]]; then
   status="update-available"
   reason="upstream_changed"
   needs_update=true
-elif [[ "$FORCE_TEST" == "true" ]]; then
+elif [[ "$FORCE" == "true" ]]; then
   status="update-available"
-  reason="force_test"
+  reason="FORCE"
   needs_update=true
 fi
 
@@ -254,12 +254,12 @@ if [[ "$needs_update" != "true" ]]; then
   exit 0
 fi
 
-if [[ "$reason" == "force_test" ]]; then
-  echo "[FORCE_TEST] Upstream unchanged, but forcing refresh for CI test."
+if [[ "$reason" == "FORCE" ]]; then
+  echo "[FORCE] Upstream unchanged, but forcing refresh for CI test."
 fi
 
 pkgrel=1
-if [[ "$FORCE_TEST" == "true" && "$current_ver" == "$ver" && "$current_url" == "$url" ]]; then
+if [[ "$FORCE" == "true" && "$current_ver" == "$ver" && "$current_url" == "$url" ]]; then
   if [[ "$current_pkgrel" =~ ^[0-9]+$ && "$current_pkgrel" -ge 1 ]]; then
     pkgrel=$((current_pkgrel + 1))
   fi
@@ -277,10 +277,13 @@ fi
 
 appimage="$workdir/LayaAirIDE.AppImage"
 
-if [[ -n "$cached_appimage" && -s "$cached_appimage" ]]; then
+if [[ "$FORCE" != "true" && -n "$cached_appimage" && -s "$cached_appimage" ]]; then
   echo "Using cached AppImage: $cached_appimage"
   cp -f "$cached_appimage" "$appimage"
 else
+  if [[ "$FORCE" == "true" && -n "$cached_appimage" && -e "$cached_appimage" ]]; then
+    echo "[FORCE] Skipping cached AppImage restore: $cached_appimage"
+  fi
   echo "Downloading AppImage: $url"
   if ! download_file "$url" "$appimage"; then
     echo "Failed to download AppImage: $url" >&2
@@ -301,13 +304,13 @@ sed -i "s/^pkgrel=.*/pkgrel=${pkgrel}/" PKGBUILD
 sed -i "s#^_url=.*#_url=${url}#" PKGBUILD
 sed -i "s/^sha256sums=.*/sha256sums=('${sha256}')/" PKGBUILD
 
-# Ensure FORCE_TEST runs produce a diff, without affecting packaging behavior.
-if [[ "$FORCE_TEST" == "true" ]]; then
+# Ensure FORCE runs produce a diff, without affecting packaging behavior.
+if [[ "$FORCE" == "true" ]]; then
   ts="$(date -u +%Y%m%d%H%M%S)"
-  if grep -q '^_force_test_ts=' PKGBUILD; then
-    sed -i "s/^_force_test_ts=.*/_force_test_ts=${ts}/" PKGBUILD
+  if grep -q '^_FORCE_ts=' PKGBUILD; then
+    sed -i "s/^_FORCE_ts=.*/_FORCE_ts=${ts}/" PKGBUILD
   else
-    sed -i "1i_force_test_ts=${ts}" PKGBUILD
+    sed -i "1i_FORCE_ts=${ts}" PKGBUILD
   fi
 fi
 
