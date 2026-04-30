@@ -5,8 +5,8 @@ on:
     - cron: '0 2 * * *'
   workflow_dispatch:
     inputs:
-      force_test:
-        description: 'Force update for testing (ignore version/url compare)'
+      force:
+        description: 'Force refresh and recompute sha when upstream silently replaces the AppImage'
         required: false
         default: 'false'
         type: choice
@@ -74,7 +74,7 @@ jobs:
       - name: Detect upstream update
         id: detect
         env:
-          FORCE_TEST: ${{ inputs.force_test || 'false' }}
+          FORCE_TEST: ${{ inputs.force || 'false' }}
         run: |
           set -euo pipefail
 
@@ -105,7 +105,7 @@ jobs:
       - name: Download AppImage and update PKGBUILD
         if: steps.detect.outputs.needs_update == 'true'
         env:
-          FORCE_TEST: ${{ inputs.force_test || 'false' }}
+          FORCE_TEST: ${{ inputs.force || 'false' }}
           CACHE_DIR: /home/builder/.cache/layaair-ide
           CURRENT_VER: ${{ steps.detect.outputs.current_ver }}
           LATEST_VER: ${{ steps.detect.outputs.latest_ver }}

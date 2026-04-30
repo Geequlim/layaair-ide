@@ -27,6 +27,8 @@ Large AppImage downloads prefer `aria2c` automatically when available. You can o
 ## GitHub Actions (nightly)
 The workflow runs every night and pushes updates to GitHub and AUR.
 
+If upstream silently replaces the AppImage without changing the version or download URL, run the workflow manually with `force=true` to force a redownload, recompute `sha256sums`, and bump `pkgrel` for a new AUR revision.
+
 Required secrets:
 - `AUR_SSH_PRIVATE_KEY` (private key with access to `aur.archlinux.org`)
 - `AUR_USERNAME` (your AUR username)

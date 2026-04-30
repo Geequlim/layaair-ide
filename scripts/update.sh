@@ -227,6 +227,7 @@ pkgver=${ver//-/_}
 
 current_ver=$(sed -n 's/^_upstream_ver=//p' PKGBUILD || true)
 current_url=$(sed -n 's/^_url=//p' PKGBUILD || true)
+current_pkgrel=$(sed -n 's/^pkgrel=//p' PKGBUILD || true)
 status="up-to-date"
 reason="no_change"
 needs_update=false
@@ -255,6 +256,14 @@ fi
 
 if [[ "$reason" == "force_test" ]]; then
   echo "[FORCE_TEST] Upstream unchanged, but forcing refresh for CI test."
+fi
+
+pkgrel=1
+if [[ "$FORCE_TEST" == "true" && "$current_ver" == "$ver" && "$current_url" == "$url" ]]; then
+  if [[ "$current_pkgrel" =~ ^[0-9]+$ && "$current_pkgrel" -ge 1 ]]; then
+    pkgrel=$((current_pkgrel + 1))
+  fi
+  echo "Refreshing same upstream version; bumping pkgrel to ${pkgrel} so AUR users see a new package revision."
 fi
 
 # ---------- AppImage cache ----------
@@ -288,7 +297,7 @@ sha256=$(sha256sum "$appimage" | awk '{print $1}')
 
 sed -i "s/^_upstream_ver=.*/_upstream_ver=${ver}/" PKGBUILD
 sed -i "s/^pkgver=.*/pkgver=${pkgver}/" PKGBUILD
-sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
+sed -i "s/^pkgrel=.*/pkgrel=${pkgrel}/" PKGBUILD
 sed -i "s#^_url=.*#_url=${url}#" PKGBUILD
 sed -i "s/^sha256sums=.*/sha256sums=('${sha256}')/" PKGBUILD
 
